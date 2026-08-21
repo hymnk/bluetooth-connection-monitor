@@ -15,6 +15,9 @@ state visible at a glance.
   red = at least one disconnected); hover for per-device status
 - Runs hidden, no PowerShell console window
 - Starts automatically at logon (Startup folder shortcut)
+- Tray icons are embedded in the script (base64), and all per-tick work is
+  wrapped in try/catch — no runtime file dependency and no error dialogs
+  from a transient failure
 
 ## Why not `Get-PnpDevice` / `Status`?
 
@@ -81,7 +84,7 @@ over Bluetooth are supported. (This is also why the `MX Ergo S` entry in
 | File | Purpose |
 |---|---|
 | `BluetoothNotify.ps1` | Main script: polls connection status, shows toasts, drives the tray icon |
-| `create_icons.ps1` | Generates the blue/green/red Bluetooth glyph icons |
+| `create_icons.ps1` | Generates the blue/green/red Bluetooth glyph icon files, used to (re)produce the base64 strings embedded in `BluetoothNotify.ps1` — not read at runtime |
 | `register_aumid.ps1` | Registers a Start Menu shortcut with a custom AppUserModelID so toasts show as "Bluetooth Connection Monitor" instead of "Windows PowerShell" |
 | `update_startup_shortcut.ps1` | Creates/updates the Startup folder shortcut that launches the exe at logon |
 | `build.ps1` | Runs the full build: icons → compile → register AUMID → register startup |
@@ -96,6 +99,11 @@ over Bluetooth are supported. (This is also why the `MX Ergo S` entry in
   and the tray icon are unaffected and clearly color-coded instead.
 - Task Scheduler registration requires elevated (admin) rights; this project
   uses a Startup folder shortcut instead, which does not.
+- Earlier versions loaded the tray icons from external `.ico` files in
+  `%LOCALAPPDATA%\BluetoothNotify` at runtime; this occasionally failed at
+  logon (path not found), spamming an error dialog on every timer tick. Fixed
+  by embedding the icons as base64 directly in the script and wrapping the
+  timer tick in try/catch so a transient failure never surfaces as a dialog.
 
 ## Requirements
 
