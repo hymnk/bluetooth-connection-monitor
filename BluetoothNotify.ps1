@@ -6,6 +6,7 @@
 #   Get-PnpDeviceProperty -InstanceId <InstanceId> -KeyName DEVPKEY_Bluetooth_DeviceAddress
 $TargetDevices = @(
     @{ Name = 'Keychron K11 Max'; Address = 'ce20f1c02578' },
+    @{ Name = 'Cornix'; Address = 'd3e12e2a6f5c' },
     @{ Name = 'MX Ergo S'; Address = 'd97908c41416' }
 )
 $PollIntervalSec = 1
@@ -50,10 +51,18 @@ function Show-Toast {
 $devices = @{}
 $lastStatus = @{}
 foreach ($t in $TargetDevices) {
-    $addr = [Convert]::ToUInt64($t.Address, 16)
-    $op = [Windows.Devices.Bluetooth.BluetoothLEDevice]::FromBluetoothAddressAsync($addr)
-    $devices[$t.Name] = Await $op ([Windows.Devices.Bluetooth.BluetoothLEDevice])
-    $lastStatus[$t.Name] = $null
+    try {
+        $addr = [Convert]::ToUInt64($t.Address, 16)
+        $op = [Windows.Devices.Bluetooth.BluetoothLEDevice]::FromBluetoothAddressAsync($addr)
+        $dev = Await $op ([Windows.Devices.Bluetooth.BluetoothLEDevice])
+        if ($null -ne $dev) {
+            $devices[$t.Name] = $dev
+            $lastStatus[$t.Name] = $null
+        }
+    } catch {
+        # Device not currently paired/known to this PC - skip it rather than
+        # crash the whole tray app; it'll just be excluded from monitoring.
+    }
 }
 
 # Icons are embedded as base64 (not loaded from external files) so the exe has
@@ -78,11 +87,15 @@ $exitItem.Add_Click({
 $notifyIcon.ContextMenuStrip = $contextMenu
 
 function Update-TrayIcon {
-    $lines = foreach ($name in $devices.Keys) { "$name`: $($lastStatus[$name])" }
+    $lines = foreach ($name in $devices.Keys) {
+        $mark = if ($lastStatus[$name] -eq 'Connected') { 'OK' } else { '--' }
+        "$name`: $mark"
+    }
     $allConnected = ($devices.Keys | ForEach-Object { $lastStatus[$_] -eq 'Connected' }) -notcontains $false
     $notifyIcon.Icon = if ($allConnected) { $connectedIcon } else { $disconnectedIcon }
     $tip = ($lines -join "`n")
-    if ($tip.Length -gt 127) { $tip = $tip.Substring(0, 127) }
+    # NotifyIcon.Text has a hard 63-character limit (throws if exceeded).
+    if ($tip.Length -gt 63) { $tip = $tip.Substring(0, 60) + '...' }
     $notifyIcon.Text = $tip
 }
 
