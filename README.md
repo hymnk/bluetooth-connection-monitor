@@ -52,11 +52,15 @@ over Bluetooth are supported. (This is also why the `MX Ergo S` entry in
    The address is the 12 hex-digit segment in `InstanceId`, e.g.
    `BTHLE\DEV_ce20f1c02578\...` → `ce20f1c02578`.
 
-2. Edit `$TargetDevices` at the top of `BluetoothNotify.ps1`:
+2. Edit `$TargetDevices` at the top of `BluetoothNotify.ps1`. `Category` groups
+   interchangeable devices (e.g. two keyboards you swap between) — the tray
+   icon stays green as long as at least one device in *each* category present
+   is connected, not necessarily all of them:
    ```powershell
    $TargetDevices = @(
-       @{ Name = 'Keychron K11 Max'; Address = 'ce20f1c02578' },
-       @{ Name = 'MX Ergo S'; Address = 'd97908c41416' }
+       @{ Name = 'Keychron K11 Max'; Address = 'ce20f1c02578'; Category = 'Keyboard' },
+       @{ Name = 'Cornix'; Address = 'd3e12e2a6f5c'; Category = 'Keyboard' },
+       @{ Name = 'MX Ergo S'; Address = 'd97908c41416'; Category = 'Mouse' }
    )
    ```
 

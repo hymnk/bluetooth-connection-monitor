@@ -4,10 +4,13 @@
 
 # Bluetooth LE device address(es) to watch. Find via:
 #   Get-PnpDeviceProperty -InstanceId <InstanceId> -KeyName DEVPKEY_Bluetooth_DeviceAddress
+# Category groups devices that are interchangeable (e.g. two keyboards you
+# swap between) - the tray icon is green as long as at least one device in
+# EACH category present below is connected, not necessarily all of them.
 $TargetDevices = @(
-    @{ Name = 'Keychron K11 Max'; Address = 'ce20f1c02578' },
-    @{ Name = 'Cornix'; Address = 'd3e12e2a6f5c' },
-    @{ Name = 'MX Ergo S'; Address = 'd97908c41416' }
+    @{ Name = 'Keychron K11 Max'; Address = 'ce20f1c02578'; Category = 'Keyboard' },
+    @{ Name = 'Cornix'; Address = 'd3e12e2a6f5c'; Category = 'Keyboard' },
+    @{ Name = 'MX Ergo S'; Address = 'd97908c41416'; Category = 'Mouse' }
 )
 $PollIntervalSec = 1
 
@@ -50,6 +53,7 @@ function Show-Toast {
 
 $devices = @{}
 $lastStatus = @{}
+$categoryOf = @{}
 foreach ($t in $TargetDevices) {
     try {
         $addr = [Convert]::ToUInt64($t.Address, 16)
@@ -58,6 +62,7 @@ foreach ($t in $TargetDevices) {
         if ($null -ne $dev) {
             $devices[$t.Name] = $dev
             $lastStatus[$t.Name] = $null
+            $categoryOf[$t.Name] = $t.Category
         }
     } catch {
         # Device not currently paired/known to this PC - skip it rather than
@@ -91,8 +96,15 @@ function Update-TrayIcon {
         $mark = if ($lastStatus[$name] -eq 'Connected') { 'OK' } else { '--' }
         "$name`: $mark"
     }
-    $allConnected = ($devices.Keys | ForEach-Object { $lastStatus[$_] -eq 'Connected' }) -notcontains $false
-    $notifyIcon.Icon = if ($allConnected) { $connectedIcon } else { $disconnectedIcon }
+    # Green as long as every category present has at least one device connected.
+    $allCategoriesOk = $true
+    foreach ($cat in ($categoryOf.Values | Select-Object -Unique)) {
+        $namesInCat = $categoryOf.Keys | Where-Object { $categoryOf[$_] -eq $cat }
+        if (-not ($namesInCat | Where-Object { $lastStatus[$_] -eq 'Connected' })) {
+            $allCategoriesOk = $false
+        }
+    }
+    $notifyIcon.Icon = if ($allCategoriesOk) { $connectedIcon } else { $disconnectedIcon }
     $tip = ($lines -join "`n")
     # NotifyIcon.Text has a hard 63-character limit (throws if exceeded).
     if ($tip.Length -gt 63) { $tip = $tip.Substring(0, 60) + '...' }
