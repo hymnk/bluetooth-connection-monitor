@@ -1,7 +1,7 @@
 # Bluetooth Connection Monitor
 
-Windows 11 tray app that watches specific Bluetooth LE devices (e.g. a
-keyboard/mouse shared between two PCs) and shows a toast notification plus a
+Windows 11 tray app that watches specific Bluetooth devices (LE keyboards/mice
+shared between two PCs, and optionally classic devices such as headphones) and shows a toast notification plus a
 color-coded tray icon whenever one connects or disconnects from this PC.
 
 Built to solve one problem: when a keyboard/mouse is switched between two
@@ -60,9 +60,17 @@ over Bluetooth are supported. (This is also why the `MX Ergo S` entry in
    $TargetDevices = @(
        @{ Name = 'Keychron K11 Max'; Address = 'ce20f1c02578'; Category = 'Keyboard' },
        @{ Name = 'Cornix'; Address = 'd3e12e2a6f5c'; Category = 'Keyboard' },
-       @{ Name = 'MX Ergo S'; Address = 'd97908c41416'; Category = 'Mouse' }
+       @{ Name = 'MX Ergo S'; Address = 'd97908c41416'; Category = 'Mouse' },
+       @{ Name = 'Bose QC Ultra'; Address = 'bc87fa9d402a'; Category = 'Headphones'; Type = 'Classic'; Required = $false }
    )
    ```
+   Optional fields:
+   - `Type = 'Classic'` — for BR/EDR devices such as headphones. Their audio
+     link is **not** reported by the LE API (`BluetoothLEDevice` stays
+     `Disconnected` while music is playing), so they are queried through
+     `BluetoothDevice` instead. Leave it out for LE devices (keyboards/mice).
+   - `Required = $false` — still notify on connect/disconnect and list the
+     device in the tooltip, but never let it turn the tray icon red.
 
 3. Install the [ps2exe](https://github.com/MScholtes/PS2EXE) module (used to
    compile the script into a console-less `.exe`):

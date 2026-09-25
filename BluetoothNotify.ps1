@@ -7,10 +7,18 @@
 # Category groups devices that are interchangeable (e.g. two keyboards you
 # swap between) - the tray icon is green as long as at least one device in
 # EACH category present below is connected, not necessarily all of them.
+#
+# Type:     'LE' (default) for Bluetooth Low Energy devices such as keyboards/mice,
+#           'Classic' for BR/EDR devices such as headphones - their audio link is
+#           NOT reported by the LE API (which stays Disconnected), so they must be
+#           queried through BluetoothDevice instead.
+# Required: set to $false for devices that should trigger notifications but must
+#           not affect the tray icon color (e.g. headphones you only use sometimes).
 $TargetDevices = @(
     @{ Name = 'Keychron K11 Max'; Address = 'ce20f1c02578'; Category = 'Keyboard' },
     @{ Name = 'Cornix'; Address = 'd3e12e2a6f5c'; Category = 'Keyboard' },
-    @{ Name = 'MX Ergo S'; Address = 'd97908c41416'; Category = 'Mouse' }
+    @{ Name = 'MX Ergo S'; Address = 'd97908c41416'; Category = 'Mouse' },
+    @{ Name = 'Bose QC Ultra'; Address = 'bc87fa9d402a'; Category = 'Headphones'; Type = 'Classic'; Required = $false }
 )
 $PollIntervalSec = 1
 
@@ -27,6 +35,7 @@ Function Await($WinRtTask, $ResultType) {
 }
 
 [Windows.Devices.Bluetooth.BluetoothLEDevice, Windows.Devices.Bluetooth, ContentType = WindowsRuntime] | Out-Null
+[Windows.Devices.Bluetooth.BluetoothDevice, Windows.Devices.Bluetooth, ContentType = WindowsRuntime] | Out-Null
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
 
@@ -57,12 +66,19 @@ $categoryOf = @{}
 foreach ($t in $TargetDevices) {
     try {
         $addr = [Convert]::ToUInt64($t.Address, 16)
-        $op = [Windows.Devices.Bluetooth.BluetoothLEDevice]::FromBluetoothAddressAsync($addr)
-        $dev = Await $op ([Windows.Devices.Bluetooth.BluetoothLEDevice])
+        if ($t.Type -eq 'Classic') {
+            $op = [Windows.Devices.Bluetooth.BluetoothDevice]::FromBluetoothAddressAsync($addr)
+            $dev = Await $op ([Windows.Devices.Bluetooth.BluetoothDevice])
+        } else {
+            $op = [Windows.Devices.Bluetooth.BluetoothLEDevice]::FromBluetoothAddressAsync($addr)
+            $dev = Await $op ([Windows.Devices.Bluetooth.BluetoothLEDevice])
+        }
         if ($null -ne $dev) {
             $devices[$t.Name] = $dev
             $lastStatus[$t.Name] = $null
-            $categoryOf[$t.Name] = $t.Category
+            # Devices marked Required = $false are still notified about, but
+            # left out of the category map so they never turn the tray icon red.
+            if ($t.Required -ne $false) { $categoryOf[$t.Name] = $t.Category }
         }
     } catch {
         # Device not currently paired/known to this PC - skip it rather than
