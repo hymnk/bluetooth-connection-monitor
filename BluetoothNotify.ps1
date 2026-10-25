@@ -22,9 +22,121 @@ $TargetDevices = @(
 )
 $PollIntervalSec = 1
 
+# How to announce connect/disconnect events:
+#   'Overlay' - small pill at the bottom-right that fades out by itself (default)
+#   'Toast'   - standard Windows toast notification
+#   'Both'    - overlay and toast
+#   'None'    - tray icon / tooltip only
+$NotifyStyle = 'Overlay'
+$OverlayHoldMs = 1800   # how long the overlay stays fully visible
+
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+# Borderless, non-activating, click-through, topmost pill that fades in/out.
+# Needs a small C# subclass because focus-stealing/click-through are window
+# styles that can only be set by overriding Form.CreateParams.
+Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @"
+using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Windows.Forms;
+
+public class StatusOverlay : Form
+{
+    private static StatusOverlay current;
+    private readonly string text;
+    private readonly Color dot;
+    private readonly int holdMs;
+    private readonly Timer timer = new Timer();
+    private DateTime start = DateTime.UtcNow;
+    private const int FadeInMs = 150;
+    private const int FadeOutMs = 400;
+    private const double MaxOpacity = 0.92;
+
+    public static void Notify(string text, Color dot, int holdMs)
+    {
+        if (current != null && !current.IsDisposed) { current.Close(); }
+        current = new StatusOverlay(text, dot, holdMs);
+        current.Show();
+    }
+
+    private StatusOverlay(string text, Color dot, int holdMs)
+    {
+        this.text = text; this.dot = dot; this.holdMs = holdMs;
+        FormBorderStyle = FormBorderStyle.None;
+        ShowInTaskbar = false;
+        TopMost = true;
+        StartPosition = FormStartPosition.Manual;
+        BackColor = Color.FromArgb(32, 32, 32);
+        Opacity = 0;
+        DoubleBuffered = true;
+
+        Font = new Font("Segoe UI", 11f);
+        Size textSize = TextRenderer.MeasureText(text, Font);
+        Size = new Size(textSize.Width + 52, textSize.Height + 22);
+
+        Rectangle area = Screen.PrimaryScreen.WorkingArea;
+        Location = new Point(area.Right - Width - 16, area.Bottom - Height - 16);
+
+        GraphicsPath path = new GraphicsPath();
+        int d = Height;
+        path.AddArc(0, 0, d, d, 90, 180);
+        path.AddArc(Width - d - 1, 0, d, d, 270, 180);
+        path.CloseFigure();
+        Region = new Region(path);
+
+        timer.Interval = 15;
+        timer.Tick += OnTick;
+        timer.Start();
+    }
+
+    private void OnTick(object sender, EventArgs e)
+    {
+        double ms = (DateTime.UtcNow - start).TotalMilliseconds;
+        if (ms < FadeInMs) { Opacity = MaxOpacity * ms / FadeInMs; }
+        else if (ms < FadeInMs + holdMs) { Opacity = MaxOpacity; }
+        else if (ms < FadeInMs + holdMs + FadeOutMs)
+        {
+            Opacity = MaxOpacity * (1 - (ms - FadeInMs - holdMs) / FadeOutMs);
+        }
+        else { timer.Stop(); Close(); }
+    }
+
+    protected override bool ShowWithoutActivation { get { return true; } }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams cp = base.CreateParams;
+            // TOOLWINDOW | NOACTIVATE | TRANSPARENT (click-through)
+            cp.ExStyle |= 0x80 | 0x08000000 | 0x20;
+            return cp;
+        }
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        int r = 9;
+        using (SolidBrush b = new SolidBrush(dot))
+        {
+            int size = r * 2 - 4;
+            e.Graphics.FillEllipse(b, 20, (Height - size) / 2, size, size);
+        }
+        TextRenderer.DrawText(e.Graphics, text, Font, new Point(40, 11), Color.White);
+    }
+
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        timer.Dispose();
+        if (current == this) { current = null; }
+        base.OnFormClosed(e);
+    }
+}
+"@
 
 Function Await($WinRtTask, $ResultType) {
     $asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
@@ -58,6 +170,22 @@ function Show-Toast {
     $xml.LoadXml($template)
     $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
     [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($AppId).Show($toast)
+}
+
+function Announce {
+    param([string]$Name, [bool]$Connected)
+    $verb = if ($Connected) { 'connected' } else { 'disconnected' }
+    if ($NotifyStyle -eq 'Overlay' -or $NotifyStyle -eq 'Both') {
+        $color = if ($Connected) { [System.Drawing.Color]::FromArgb(46, 204, 64) } else { [System.Drawing.Color]::FromArgb(231, 76, 60) }
+        [StatusOverlay]::Notify("$Name  $verb", $color, $OverlayHoldMs)
+    }
+    if ($NotifyStyle -eq 'Toast' -or $NotifyStyle -eq 'Both') {
+        if ($Connected) {
+            Show-Toast -Title "$([System.Char]::ConvertFromUtf32(0x1F7E2)) Bluetooth Connected" -Message "$Name is now connected to this PC"
+        } else {
+            Show-Toast -Title "$([System.Char]::ConvertFromUtf32(0x1F534)) Bluetooth Disconnected" -Message "$Name has disconnected from this PC"
+        }
+    }
 }
 
 $devices = @{}
@@ -100,6 +228,10 @@ $notifyIcon.Visible = $true
 $notifyIcon.Text = 'Bluetooth Connection Monitor'
 
 $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$testItem = $contextMenu.Items.Add('Test notification')
+$testItem.Add_Click({
+    Announce -Name 'Test device' -Connected $true
+})
 $exitItem = $contextMenu.Items.Add('Exit')
 $exitItem.Add_Click({
     $notifyIcon.Visible = $false
@@ -135,11 +267,7 @@ $timer.Add_Tick({
             $status = $devices[$name].ConnectionStatus.ToString()
 
             if ($null -ne $lastStatus[$name] -and $status -ne $lastStatus[$name]) {
-                if ($status -eq 'Connected') {
-                    Show-Toast -Title "$([System.Char]::ConvertFromUtf32(0x1F7E2)) Bluetooth Connected" -Message "$name is now connected to this PC"
-                } else {
-                    Show-Toast -Title "$([System.Char]::ConvertFromUtf32(0x1F534)) Bluetooth Disconnected" -Message "$name has disconnected from this PC"
-                }
+                Announce -Name $name -Connected ($status -eq 'Connected')
             }
             $lastStatus[$name] = $status
         }

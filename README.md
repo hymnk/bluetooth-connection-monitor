@@ -10,9 +10,12 @@ state visible at a glance.
 
 ## Features
 
-- Toast notification on connect (🟢) and disconnect (🔴), silent by default
-- Tray icon reflects current state (green = all watched devices connected,
-  red = at least one disconnected); hover for per-device status
+- Unobtrusive overlay on connect/disconnect: a small pill at the bottom-right
+  (green/red dot + device name) that fades out after ~2s, never steals focus
+  and is click-through. Standard Windows toasts are still available.
+- Tray icon reflects current state (green = every category has at least one
+  device connected, red = otherwise); hover for per-device status. Right-click
+  → "Test notification" previews the overlay.
 - Runs hidden, no PowerShell console window
 - Starts automatically at logon (Startup folder shortcut)
 - Tray icons are embedded in the script (base64), and all per-tick work is
@@ -101,10 +104,23 @@ over Bluetooth are supported. (This is also why the `MX Ergo S` entry in
 | `update_startup_shortcut.ps1` | Creates/updates the Startup folder shortcut that launches the exe at logon |
 | `build.ps1` | Runs the full build: icons → compile → register AUMID → register startup |
 
+## Notification style
+
+Set at the top of `BluetoothNotify.ps1`:
+
+| Variable | Values |
+|---|---|
+| `$NotifyStyle` | `'Overlay'` (default), `'Toast'`, `'Both'`, `'None'` (tray icon only) |
+| `$OverlayHoldMs` | How long the overlay stays fully visible, in ms (default `1800`) |
+
+The overlay is a borderless `Form` subclass (compiled at startup via
+`Add-Type`) using the `WS_EX_NOACTIVATE`/`WS_EX_TRANSPARENT`/`WS_EX_TOOLWINDOW`
+styles, which is what makes it non-focus-stealing and click-through.
+
 ## Known limitations
 
-- Toast notification duration isn't configurable beyond Windows' two presets
-  (`short` ≈5s / `long` ≈25s); this app uses the default `short`.
+- Windows toast duration isn't configurable beyond two presets (`short` ≈5s /
+  `long` ≈25s) — the reason the default is the custom overlay instead.
 - The small app icon shown in the toast header could not be made to display
   correctly for this unpackaged script-based app (a Windows Notification
   Platform restriction on non-MSIX apps); the toast body (title + message)
