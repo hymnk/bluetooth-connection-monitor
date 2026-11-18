@@ -2,37 +2,51 @@
 # which stays "OK" for devices with AlwaysShowDeviceAsConnected=True), shows a
 # toast on connect/disconnect, and keeps a tray icon reflecting current status.
 
-# Bluetooth LE device address(es) to watch. Find via:
+# Settings live in devices.json next to the exe (see devices.sample.json):
+#   NotifyStyle    'Overlay' (default) | 'Toast' | 'Both' | 'None'
+#   OverlayHoldMs  how long the overlay stays fully visible (default 1800)
+#   Devices[]      Name, Address (12 hex digits), Category, and optionally:
+#     Category  groups interchangeable devices (e.g. two keyboards you swap
+#               between) - the tray icon is green as long as at least one
+#               device in EACH category is connected, not necessarily all.
+#     Type      'LE' (default) for keyboards/mice; 'Classic' for BR/EDR devices
+#               such as headphones (their audio link is NOT reported by the LE
+#               API, so they must be queried through BluetoothDevice).
+#     Required  false = still notify, but never turn the tray icon red.
+# Find an address via:
 #   Get-PnpDeviceProperty -InstanceId <InstanceId> -KeyName DEVPKEY_Bluetooth_DeviceAddress
-# Category groups devices that are interchangeable (e.g. two keyboards you
-# swap between) - the tray icon is green as long as at least one device in
-# EACH category present below is connected, not necessarily all of them.
-#
-# Type:     'LE' (default) for Bluetooth Low Energy devices such as keyboards/mice,
-#           'Classic' for BR/EDR devices such as headphones - their audio link is
-#           NOT reported by the LE API (which stays Disconnected), so they must be
-#           queried through BluetoothDevice instead.
-# Required: set to $false for devices that should trigger notifications but must
-#           not affect the tray icon color (e.g. headphones you only use sometimes).
-$TargetDevices = @(
-    @{ Name = 'Keychron K11 Max'; Address = 'ce20f1c02578'; Category = 'Keyboard' },
-    @{ Name = 'Cornix'; Address = 'd3e12e2a6f5c'; Category = 'Keyboard' },
-    @{ Name = 'MX Ergo S'; Address = 'd97908c41416'; Category = 'Mouse' },
-    @{ Name = 'Bose QC Ultra'; Address = 'bc87fa9d402a'; Category = 'Headphones'; Type = 'Classic'; Required = $false }
-)
 $PollIntervalSec = 1
-
-# How to announce connect/disconnect events:
-#   'Overlay' - small pill at the bottom-right that fades out by itself (default)
-#   'Toast'   - standard Windows toast notification
-#   'Both'    - overlay and toast
-#   'None'    - tray icon / tooltip only
-$NotifyStyle = 'Overlay'
-$OverlayHoldMs = 1800   # how long the overlay stays fully visible
 
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+# $PSScriptRoot is not populated inside a ps2exe-compiled exe, so use the exe's
+# own folder there and the script folder when run as a plain .ps1.
+$exePath = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+$baseDir = if ($exePath -match '(?i)\\(powershell|pwsh)\.exe$') { $PSScriptRoot } else { Split-Path -Parent $exePath }
+$configPath = Join-Path $baseDir 'devices.json'
+
+if (-not (Test-Path -LiteralPath $configPath)) {
+    [System.Windows.Forms.MessageBox]::Show(
+        "devices.json was not found next to the program:`n$configPath`n`nCopy devices.sample.json to devices.json, edit it for your devices, and start again.",
+        'Bluetooth Connection Monitor') | Out-Null
+    exit 1
+}
+try {
+    $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $config.Devices) { throw 'Devices is empty' }
+} catch {
+    [System.Windows.Forms.MessageBox]::Show(
+        "Could not read devices.json:`n$($_.Exception.Message)",
+        'Bluetooth Connection Monitor') | Out-Null
+    exit 1
+}
+$TargetDevices = @($config.Devices | ForEach-Object {
+    @{ Name = $_.Name; Address = $_.Address; Category = $_.Category; Type = $_.Type; Required = $_.Required }
+})
+$NotifyStyle = if ($config.NotifyStyle) { $config.NotifyStyle } else { 'Overlay' }
+$OverlayHoldMs = if ($config.OverlayHoldMs) { [int]$config.OverlayHoldMs } else { 1800 }
 
 # Borderless, non-activating, click-through, topmost pill that fades in/out.
 # Needs a small C# subclass because focus-stealing/click-through are window

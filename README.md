@@ -44,6 +44,21 @@ devices **cannot** be monitored by this tool; only devices paired directly
 over Bluetooth are supported. (This is also why the `MX Ergo S` entry in
 `BluetoothNotify.ps1` assumes it's been switched to direct Bluetooth pairing.)
 
+## Quick start (prebuilt exe)
+
+1. Download `BluetoothNotify.exe` and `devices.sample.json` from the
+   [latest release](https://github.com/hymnk/bluetooth-connection-monitor/releases/latest) into one folder.
+2. Rename `devices.sample.json` to `devices.json` and edit it for your own
+   devices (see *Setup* step 1 for how to find a device address and the
+   [Configuration](#configuration) section for the fields).
+3. Run `BluetoothNotify.exe`. A tray icon appears; right-click it for
+   *Test notification* / *Exit*. To start it at every logon, put a shortcut
+   to the exe in `shell:startup`.
+
+The exe is unsigned, so Windows SmartScreen may warn on first run
+(*More info* → *Run anyway*). If you would rather not trust a binary, build
+it yourself from source as described below.
+
 ## Setup
 
 1. Find the Bluetooth LE address of each device you want to watch:
@@ -55,25 +70,9 @@ over Bluetooth are supported. (This is also why the `MX Ergo S` entry in
    The address is the 12 hex-digit segment in `InstanceId`, e.g.
    `BTHLE\DEV_ce20f1c02578\...` → `ce20f1c02578`.
 
-2. Edit `$TargetDevices` at the top of `BluetoothNotify.ps1`. `Category` groups
-   interchangeable devices (e.g. two keyboards you swap between) — the tray
-   icon stays green as long as at least one device in *each* category present
-   is connected, not necessarily all of them:
-   ```powershell
-   $TargetDevices = @(
-       @{ Name = 'Keychron K11 Max'; Address = 'ce20f1c02578'; Category = 'Keyboard' },
-       @{ Name = 'Cornix'; Address = 'd3e12e2a6f5c'; Category = 'Keyboard' },
-       @{ Name = 'MX Ergo S'; Address = 'd97908c41416'; Category = 'Mouse' },
-       @{ Name = 'Bose QC Ultra'; Address = 'bc87fa9d402a'; Category = 'Headphones'; Type = 'Classic'; Required = $false }
-   )
-   ```
-   Optional fields:
-   - `Type = 'Classic'` — for BR/EDR devices such as headphones. Their audio
-     link is **not** reported by the LE API (`BluetoothLEDevice` stays
-     `Disconnected` while music is playing), so they are queried through
-     `BluetoothDevice` instead. Leave it out for LE devices (keyboards/mice).
-   - `Required = $false` — still notify on connect/disconnect and list the
-     device in the tooltip, but never let it turn the tray icon red.
+2. Copy `devices.sample.json` to `devices.json` (next to the exe, or next to
+   `BluetoothNotify.ps1` when running the script) and edit it — see
+   [Configuration](#configuration). `devices.json` is git-ignored.
 
 3. Install the [ps2exe](https://github.com/MScholtes/PS2EXE) module (used to
    compile the script into a console-less `.exe`):
@@ -98,7 +97,8 @@ over Bluetooth are supported. (This is also why the `MX Ergo S` entry in
 
 | File | Purpose |
 |---|---|
-| `BluetoothNotify.ps1` | Main script: polls connection status, shows toasts, drives the tray icon |
+| `BluetoothNotify.ps1` | Main script: polls connection status, announces changes, drives the tray icon |
+| `devices.sample.json` | Template for `devices.json` (your own devices; git-ignored) |
 | `create_icons.ps1` | Generates the blue/green/red Bluetooth glyph icon files, used to (re)produce the base64 strings embedded in `BluetoothNotify.ps1` — not read at runtime |
 | `register_aumid.ps1` | Registers a Start Menu shortcut with a custom AppUserModelID so toasts show as "Bluetooth Connection Monitor" instead of "Windows PowerShell" |
 | `update_startup_shortcut.ps1` | Creates/updates the Startup folder shortcut that launches the exe at logon |
@@ -106,12 +106,12 @@ over Bluetooth are supported. (This is also why the `MX Ergo S` entry in
 
 ## Notification style
 
-Set at the top of `BluetoothNotify.ps1`:
+Set in `devices.json`:
 
 | Variable | Values |
 |---|---|
-| `$NotifyStyle` | `'Overlay'` (default), `'Toast'`, `'Both'`, `'None'` (tray icon only) |
-| `$OverlayHoldMs` | How long the overlay stays fully visible, in ms (default `1800`) |
+| `NotifyStyle` | `'Overlay'` (default), `'Toast'`, `'Both'`, `'None'` (tray icon only) |
+| `OverlayHoldMs` | How long the overlay stays fully visible, in ms (default `1800`) |
 
 The overlay is a borderless `Form` subclass (compiled at startup via
 `Add-Type`) using the `WS_EX_NOACTIVATE`/`WS_EX_TRANSPARENT`/`WS_EX_TOOLWINDOW`
@@ -139,3 +139,30 @@ styles, which is what makes it non-focus-stealing and click-through.
 - PowerShell 5.1 (Windows PowerShell; the WinRT interop used here does not
   work under PowerShell 7/pwsh)
 - [ps2exe](https://github.com/MScholtes/PS2EXE) module for building the exe
+
+## Configuration
+
+`devices.json` (next to the exe):
+
+```json
+{
+  "NotifyStyle": "Overlay",
+  "OverlayHoldMs": 1800,
+  "Devices": [
+    { "Name": "My Keyboard", "Address": "aabbccddeeff", "Category": "Keyboard" },
+    { "Name": "My Mouse", "Address": "112233445566", "Category": "Mouse" },
+    { "Name": "My Headphones", "Address": "0a1b2c3d4e5f", "Category": "Headphones", "Type": "Classic", "Required": false }
+  ]
+}
+```
+
+- `Category` groups interchangeable devices (e.g. two keyboards you swap
+  between) — the tray icon stays green as long as at least one device in
+  *each* category is connected, not necessarily all of them.
+- `Type: "Classic"` — for BR/EDR devices such as headphones. Their audio link
+  is **not** reported by the LE API (`BluetoothLEDevice` stays `Disconnected`
+  while music is playing), so they are queried through `BluetoothDevice`.
+  Leave it out for LE devices (keyboards/mice).
+- `Required: false` — still notify on connect/disconnect and list the device
+  in the tooltip, but never let it turn the tray icon red.
+- `NotifyStyle` / `OverlayHoldMs` — see *Notification style* above.
